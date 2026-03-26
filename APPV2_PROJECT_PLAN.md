@@ -418,30 +418,7 @@ Deliverables:
 - deployed app
 - reliable demo process
 
-## 11. Weekly Team Timeline
-
-### Week 1
-- Freeze requirements
-- Agree on layout
-- Agree on JSON schemas
-- Build UI skeleton
-- Build SQLite structure
-- Build simulate alert path
-
-### Week 2
-- Implement webhook pipeline
-- Implement risk metrics functions
-- Connect dashboard to stored results
-- Start agent outputs
-
-### Week 3
-- Integrate RAG
-- Integrate TradingView live alerts
-- Polish UI
-- Test full demo flow
-- finalize deployment and presentation
-
-## 12. Four-Person Team Split
+## 11. Four-Person Team Split
 
 ### Member 1: Dashboard and Frontend Lead
 Responsibilities:
