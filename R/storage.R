@@ -136,6 +136,44 @@ fetch_alert_history <- function(limit = 25L) {
   DBI::dbGetQuery(conn, sql)
 }
 
+fetch_analysis_by_id <- function(alert_id) {
+  conn <- db_connect()
+  on.exit(DBI::dbDisconnect(conn), add = TRUE)
+
+  sql <- sprintf(
+    "SELECT a.id AS alert_id, a.received_at, a.symbol, a.event_type,
+            a.source, a.trigger_price, a.message, a.raw_payload_json,
+            n.risk_level, n.primary_driver, n.headline, n.memo_text,
+            n.triage_json, n.metrics_json, n.knowledge_json
+     FROM alerts a LEFT JOIN analyses n ON a.id = n.alert_id
+     WHERE a.id = %d LIMIT 1;",
+    as.integer(alert_id)
+  )
+
+  row <- DBI::dbGetQuery(conn, sql)
+  if (nrow(row) == 0) return(NULL)
+
+  list(
+    alert = list(
+      alert_id = row$alert_id[[1]],
+      received_at = safe_time(row$received_at[[1]]),
+      symbol = safe_chr(row$symbol[[1]], default = "SPY"),
+      event_type = safe_chr(row$event_type[[1]], default = "watchlist_signal"),
+      source = safe_chr(row$source[[1]], default = "unknown"),
+      trigger_price = safe_num(row$trigger_price[[1]], default = NA_real_),
+      message = safe_chr(row$message[[1]], default = "")
+    ),
+    raw_payload = parse_json_safely(row$raw_payload_json[[1]]),
+    triage = parse_json_safely(row$triage_json[[1]]),
+    risk = parse_json_safely(row$metrics_json[[1]]),
+    knowledge = parse_json_safely(row$knowledge_json[[1]]),
+    memo = list(
+      headline = safe_chr(row$headline[[1]], default = ""),
+      memo = safe_chr(row$memo_text[[1]], default = "")
+    )
+  )
+}
+
 fetch_latest_analysis <- function(symbol = NULL) {
   conn <- db_connect()
   on.exit(DBI::dbDisconnect(conn), add = TRUE)

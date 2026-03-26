@@ -2,17 +2,26 @@ APP_TITLE <- "Market Stress Copilot"
 APP_SUBTITLE <- "TradingView-triggered multi-agent market risk warning system"
 
 DEFAULT_LOOKBACK <- 120L
-APPV2_ROOT <- if (basename(getwd()) == "appv2") "." else "appv2"
-APP_DB_PATH <- Sys.getenv("APPV2_DB_PATH", unset = file.path(APPV2_ROOT, "data", "alerts.sqlite"))
-KNOWLEDGE_DIR <- file.path(APPV2_ROOT, "data", "knowledge")
+
+# ---------- paths ----------
+# Detect working directory: works whether launched from repo root or parent
+APP_ROOT <- if (file.exists("app.R")) "." else if (file.exists("5381-APP-Tool/app.R")) "5381-APP-Tool" else "."
+APP_DB_PATH <- Sys.getenv("APPV2_DB_PATH", unset = file.path(APP_ROOT, "data", "alerts.sqlite"))
+KNOWLEDGE_DIR <- file.path(APP_ROOT, "data", "knowledge")
 PLAYBOOK_PATH <- file.path(KNOWLEDGE_DIR, "agent_playbook.txt")
+
+# ---------- webhook ----------
 TV_WEBHOOK_SECRET <- Sys.getenv("TV_WEBHOOK_SECRET", unset = "")
 APP_WEBHOOK_PORT <- as.integer(Sys.getenv("APPV2_WEBHOOK_PORT", unset = "8000"))
 
+# ---------- OpenAI ----------
+OPENAI_API_KEY <- Sys.getenv("OPENAI_API_KEY", unset = "")
+OPENAI_MODEL <- Sys.getenv("OPENAI_MODEL", unset = "gpt-4o-mini")
+
 APP_ASSETS <- tibble::tribble(
   ~label,    ~symbol,   ~tv_symbol,        ~asset_class, ~base_price, ~vol_scale,
-  "BTCUSDT", "BTCUSDT", "BINANCE:BTCUSDT", "Crypto",     68000,       0.032,
-  "ETHUSDT", "ETHUSDT", "BINANCE:ETHUSDT", "Crypto",     3400,        0.030,
+  "BTCUSDT", "BTC-USD", "BINANCE:BTCUSDT", "Crypto",     68000,       0.032,
+  "ETHUSDT", "ETH-USD", "BINANCE:ETHUSDT", "Crypto",     3400,        0.030,
   "SPY",     "SPY",     "AMEX:SPY",        "ETF",        520,         0.012,
   "QQQ",     "QQQ",     "NASDAQ:QQQ",      "ETF",        445,         0.015,
   "NVDA",    "NVDA",    "NASDAQ:NVDA",     "Equity",     920,         0.024

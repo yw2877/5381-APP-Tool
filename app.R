@@ -6,6 +6,8 @@ library(glue)
 library(jsonlite)
 library(scales)
 library(htmltools)
+library(quantmod)
+library(httr2)
 
 source("R/config.R")
 source("R/helpers.R")

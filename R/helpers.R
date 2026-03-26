@@ -133,9 +133,10 @@ risk_badge_class <- function(level) {
 }
 
 asset_row <- function(symbol) {
-  out <- APP_ASSETS[APP_ASSETS$symbol == safe_chr(symbol, default = "SPY"), , drop = FALSE]
+  s <- safe_chr(symbol, default = "SPY")
+  out <- APP_ASSETS[APP_ASSETS$label == s | APP_ASSETS$symbol == s, , drop = FALSE]
   if (nrow(out) == 0) {
     return(APP_ASSETS[1, , drop = FALSE])
   }
-  out
+  out[1, , drop = FALSE]
 }
