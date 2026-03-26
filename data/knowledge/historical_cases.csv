@@ -1,0 +1,6 @@
+asset_class,event_type,case_name,summary,watch_items
+Crypto,volatility_spike,BTC May 2021 Flush,"Realized volatility surged after a downside break and leverage was forced out quickly.","Funding stress; liquidation clusters; failed rebound attempts"
+Crypto,trend_break,ETH Post-Merge Risk Reset,"Trend-following longs were cut as support failed and momentum rolled over.","Support reclaim failure; drawdown speed; correlation to BTC"
+ETF,trend_break,QQQ 2022 Growth Breakdown,"A clean support break in high-duration tech turned into a multi-week de-risking phase.","Breadth deterioration; vol persistence; macro rate sensitivity"
+ETF,momentum_reversal,SPY August 2023 Pullback,"Momentum faded after a crossover and price failed to retake the short-term trend.","Volume follow-through; short-term support; beta clustering"
+Equity,liquidity_stress,NVDA Post-Earnings Whipsaw,"Gap and volume shock led to unstable intraday execution and wider downside tails.","Gap fill failure; spread sensitivity; single-name concentration"

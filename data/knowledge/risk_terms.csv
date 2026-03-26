@@ -1,0 +1,6 @@
+term,keywords,definition,implication
+Value at Risk,"var;loss;tail;quantile","Value at Risk estimates a threshold loss over a target horizon at a chosen confidence level.","Use it as a compact tail-loss reference, not as a worst-case bound."
+Expected Shortfall,"es;expected shortfall;tail;loss","Expected Shortfall measures the average loss beyond the VaR cutoff and is more sensitive to extreme tails.","Escalate when ES rises faster than VaR because downside tails are thickening."
+Max Drawdown,"drawdown;trend break;support","Max drawdown measures the peak-to-trough decline over the selected window.","Large drawdowns matter when a signal suggests trend failure rather than noise."
+Volatility Regime,"volatility;atr;range expansion","A volatility regime reflects the current intensity and persistence of realized price fluctuations.","High realized volatility can turn a tactical signal into a portfolio-risk event."
+Correlation Break,"correlation;spillover;cross asset","Correlation break tracks how quickly an asset's linkage to a benchmark shifts.","A sharp jump can signal broader de-risking instead of asset-specific stress."

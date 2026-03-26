@@ -1,0 +1,5 @@
+If the alert is a volatility spike, verify whether realized volatility is still expanding on the next 1 to 3 bars before escalating.
+If drawdown deepens while correlation jumps, treat the event as market-linked stress rather than isolated noise.
+If the signal is a trend break, check whether prior support is reclaimed quickly; failed reclaim is more important than the first break itself.
+If the event is liquidity stress, note that execution quality and slippage may deteriorate faster than simple VaR estimates imply.
+When memoing to stakeholders, separate what happened, why risk increased, and what must be monitored next.

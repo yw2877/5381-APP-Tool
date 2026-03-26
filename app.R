@@ -1,0 +1,22 @@
+library(shiny)
+library(bslib)
+library(DT)
+library(dplyr)
+library(glue)
+library(jsonlite)
+library(scales)
+library(htmltools)
+
+source("R/config.R")
+source("R/helpers.R")
+source("R/storage.R")
+source("R/knowledge.R")
+source("R/market_data.R")
+source("R/agents.R")
+source("R/pipeline.R")
+source("R/ui.R")
+source("R/server.R")
+
+ensure_runtime_state()
+
+shinyApp(ui = app_ui(), server = app_server)
