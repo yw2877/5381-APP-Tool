@@ -68,16 +68,10 @@ assetDashboardServer <- function(id) {
       input$asset; selected_lookback(); refresh_trigger()
 
       if (!nzchar(openai_key())) {
-        env_hint <- getOption("appv2.env_path", default = "")
-        msg_parts <- c(
-          "OPENAI_API_KEY is not set after loading .env.",
-          if (nzchar(env_hint)) paste("Expected .env at:", env_hint),
-          "Put OPENAI_API_KEY=sk-... on one line, save the file, set APPV2_ROOT to the repo if needed, and restart the app."
-        )
         return(list(
           error           = TRUE,
           api_key_missing = TRUE,
-          message         = paste(msg_parts, collapse = " "),
+          message         = "OpenAI API key not configured. Add OPENAI_API_KEY=sk-... to your .env file and restart the app.",
           alert     = NULL,
           triage    = NULL,
           memo      = NULL,
@@ -128,8 +122,8 @@ assetDashboardServer <- function(id) {
     observeEvent(input$simulate_alert, {
       if (!nzchar(openai_key())) {
         showNotification(
-          "Cannot simulate: OPENAI_API_KEY is not configured.",
-          type = "error", duration = 8
+          "Add OPENAI_API_KEY to your .env file and restart the app.",
+          type = "error", duration = 6
         )
         return()
       }
@@ -333,9 +327,10 @@ assetDashboardServer <- function(id) {
           paper_bgcolor = "rgba(0,0,0,0)",
           plot_bgcolor  = "rgba(255,255,255,0.8)",
           legend = list(orientation = "h", y = -0.05),
-          margin = list(l = 50, r = 20, t = 10, b = 30)
+          margin = list(l = 50, r = 20, t = 10, b = 30),
+          autosize = TRUE
         ) |>
-        plotly::config(displayModeBar = FALSE, displaylogo = FALSE)
+        plotly::config(displayModeBar = FALSE, displaylogo = FALSE, responsive = TRUE)
     })
 
     # ── Plotly: Risk Metrics Bar (market data) ─────────────────────────────

@@ -89,7 +89,7 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
         div(
           class = "control-block action-block",
           span(class = "control-label", "Alert"),
-          actionButton(ns("simulate_alert"), "Simulate Alert",
+          actionButton(ns("simulate_alert"), "▶ Simulate",
                        class = "btn btn-primary w-100")
         ),
         div(
@@ -135,32 +135,35 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
         card(
           class = "msc-card",
           card_header("Price & Rolling Volatility"),
-          plotly::plotlyOutput(ns("price_vol_chart"), height = "280px")
+          plotly::plotlyOutput(ns("price_vol_chart"), height = "370px", width = "100%")
         )
       ),
 
-      # Right column: Risk bar + Agent panels
+      # Right column: Risk bar + Agent tabset
       div(
         class = "side-stack",
         card(
           class = "msc-card",
           card_header("Risk Metrics Snapshot"),
-          plotly::plotlyOutput(ns("risk_bar_chart"), height = "250px")
+          plotly::plotlyOutput(ns("risk_bar_chart"), height = "220px")
         ),
         card(
-          class = "msc-card",
-          card_header("Signal Triage Agent"),
-          uiOutput(ns("triage_panel"))
-        ),
-        card(
-          class = "msc-card",
-          card_header("Risk Engine Agent"),
-          uiOutput(ns("risk_metrics_panel"))
-        ),
-        card(
-          class = "msc-card memo-card",
-          card_header("Risk Memo Agent"),
-          uiOutput(ns("memo_panel"))
+          class = "msc-card agent-tabset-card",
+          navset_tab(
+            id = ns("agent_tab"),
+            nav_panel(
+              title = tagList(icon("triangle-exclamation"), " Triage"),
+              div(class = "agent-tab-body", uiOutput(ns("triage_panel")))
+            ),
+            nav_panel(
+              title = tagList(icon("chart-bar"), " Risk Engine"),
+              div(class = "agent-tab-body", uiOutput(ns("risk_metrics_panel")))
+            ),
+            nav_panel(
+              title = tagList(icon("file-lines"), " Memo"),
+              div(class = "agent-tab-body", uiOutput(ns("memo_panel")))
+            )
+          )
         )
       )
     ),
