@@ -54,6 +54,14 @@ normalize_alert_payload <- function(payload) {
                              default = "tradingview"),
     trigger_price = safe_num(payload$trigger_price %||% payload$price %||% payload$close,
                              default = NA_real_),
+    reference_type = safe_chr(
+      payload$reference_type %||% payload$level_type %||% payload$threshold_type,
+      default = ""
+    ),
+    reference_level = safe_num(
+      payload$reference_level %||% payload$reference_price %||% payload$threshold_level,
+      default = NA_real_
+    ),
     message       = safe_chr(payload$message %||% payload$description,
                              default = "No message was provided in the webhook payload."),
     received_at   = safe_time(payload$timestamp %||% payload$time %||% Sys.time(),

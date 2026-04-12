@@ -17,9 +17,23 @@ kpi_box <- function(label, output_id) {
   )
 }
 
+simulated_event_choices <- function() {
+  event_types <- unique(vapply(
+    SIMULATED_EVENT_LIBRARY,
+    function(item) safe_chr(item$event_type, default = "watchlist_signal"),
+    character(1)
+  ))
+  event_labels <- vapply(event_types, title_case, character(1))
+
+  c(
+    "Random" = "random",
+    stats::setNames(event_types, event_labels)
+  )
+}
+
 # ---------- TradingView widget HTML ----------
-# Uses TradingView's official iframe embed — no JS initialisation, no race
-# conditions, no page freeze.  The iframe is completely self-contained.
+# Uses TradingView's official iframe embed; no JS initialisation or race
+# conditions. The iframe is self-contained.
 tv_widget_html <- function(tv_symbol = "BINANCE:BTCUSDT", container_id = NULL) {
   cfg <- jsonlite::toJSON(list(
     autosize            = TRUE,
@@ -43,7 +57,7 @@ tv_widget_html <- function(tv_symbol = "BINANCE:BTCUSDT", container_id = NULL) {
     tags$iframe(
       src               = iframe_src,
       width             = "100%",
-      height            = "420px",
+      height            = "390px",
       frameborder       = "0",
       allowtransparency = "true",
       scrolling         = "no",
@@ -59,7 +73,6 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
   div(
     class = "msc-shell",
 
-    # Hero strip
     div(
       class = "hero-strip",
       div(
@@ -87,9 +100,17 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
             width    = "100%")
         ),
         div(
+          class = "control-block",
+          span(class = "control-label", "Event"),
+          selectInput(ns("scenario"), NULL,
+            choices  = simulated_event_choices(),
+            selected = "random",
+            width    = "100%")
+        ),
+        div(
           class = "control-block action-block",
           span(class = "control-label", "Alert"),
-          actionButton(ns("simulate_alert"), "▶ Simulate",
+          actionButton(ns("simulate_alert"), "Simulate",
                        class = "btn btn-primary w-100")
         ),
         div(
@@ -106,10 +127,8 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
       )
     ),
 
-    # Error / status banner (hidden when all ok)
     uiOutput(ns("error_banner")),
 
-    # KPI strip
     div(
       class = "kpi-strip",
       kpi_box("Latest Price",   ns("kpi_price")),
@@ -120,11 +139,9 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
       kpi_box("Last Alert",     ns("kpi_last_alert"))
     ),
 
-    # Main grid: left = charts stacked, right = agents stacked
     div(
       class = "main-grid",
 
-      # Left column: TradingView + Price/Vol chart
       div(
         class = "chart-stack",
         card(
@@ -135,17 +152,16 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
         card(
           class = "msc-card",
           card_header("Price & Rolling Volatility"),
-          plotly::plotlyOutput(ns("price_vol_chart"), height = "370px", width = "100%")
+          plotly::plotlyOutput(ns("price_vol_chart"), height = "330px", width = "100%")
         )
       ),
 
-      # Right column: Risk bar + Agent tabset
       div(
         class = "side-stack",
         card(
           class = "msc-card",
           card_header("Risk Metrics Snapshot"),
-          plotly::plotlyOutput(ns("risk_bar_chart"), height = "220px")
+          plotly::plotlyOutput(ns("risk_bar_chart"), height = "205px")
         ),
         card(
           class = "msc-card agent-tabset-card",
@@ -168,7 +184,6 @@ assetDashboardUI <- function(id, asset_choices, default_asset, page_label) {
       )
     ),
 
-    # Compact alert feed (asset-filtered, last 5 rows)
     div(
       style = "margin-top:1rem;",
       card(
@@ -202,7 +217,7 @@ page_risk_overview <- function() {
     div(
       class = "ops-header",
       h2("Risk Overview"),
-      p("Cross-asset risk metrics snapshot, knowledge base, and playbook.")
+      p("Cross-asset risk metrics snapshot, risk terms, and playbook.")
     ),
 
     card(
@@ -220,8 +235,8 @@ page_risk_overview <- function() {
       style = "margin-top:1rem;",
       card(
         class = "msc-card",
-        card_header("Knowledge Base"),
-        div(style = "padding:0.8rem; max-height:520px; overflow-y:auto;",
+        card_header("Risk Terms"),
+        div(style = "padding:0.8rem;",
           uiOutput("overview_knowledge"))
       ),
       card(
@@ -242,10 +257,9 @@ page_operations <- function() {
     div(
       class = "ops-header",
       h2("Alert Log & Operations"),
-      p("Technical review, raw payloads, agent traces, and system status.")
+      p("Technical review, raw payloads, agent traces, matched historical cases, and system status.")
     ),
 
-    # Filters
     div(
       class = "ops-filters",
       div(
@@ -259,6 +273,7 @@ page_operations <- function() {
         selectInput("ops_type_filter", "Filter by Event Type",
                     choices  = c("All", "bollinger_breakdown", "atr_expansion",
                                  "death_cross_volume", "break_prior_low",
+                                 "support_break", "resistance_break",
                                  "baseline_check", "watchlist_signal"),
                     selected = "All", width = "100%")
       )
@@ -298,7 +313,7 @@ page_operations <- function() {
       class = "ops-bottom-grid",
       card(
         class = "msc-card",
-        card_header("Knowledge Base Viewer"),
+        card_header("Historical Cases"),
         uiOutput("ops_knowledge_viewer")
       ),
       card(
@@ -314,7 +329,7 @@ page_operations <- function() {
 app_ui <- function() {
   page_navbar(
     id    = "main_nav",
-    title = NULL,
+    title = APP_TITLE,
     theme = bs_theme(
       version      = 5,
       bg           = "#f5f5f5",

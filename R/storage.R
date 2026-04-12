@@ -2,6 +2,21 @@ db_connect <- function() {
   DBI::dbConnect(RSQLite::SQLite(), APP_DB_PATH)
 }
 
+ensure_table_column <- function(conn, table_name, column_name, column_type) {
+  info <- DBI::dbGetQuery(conn, sprintf("PRAGMA table_info(%s);", table_name))
+  if (!column_name %in% info$name) {
+    DBI::dbExecute(
+      conn,
+      sprintf(
+        "ALTER TABLE %s ADD COLUMN %s %s;",
+        table_name,
+        column_name,
+        column_type
+      )
+    )
+  }
+}
+
 ensure_runtime_state <- function() {
   dir.create(dirname(APP_DB_PATH), recursive = TRUE, showWarnings = FALSE)
   dir.create(KNOWLEDGE_DIR, recursive = TRUE, showWarnings = FALSE)
@@ -23,6 +38,8 @@ initialize_storage <- function() {
       "event_type TEXT NOT NULL,",
       "source TEXT NOT NULL,",
       "trigger_price REAL,",
+      "reference_type TEXT,",
+      "reference_level REAL,",
       "message TEXT,",
       "raw_payload_json TEXT NOT NULL",
       ");"
@@ -39,6 +56,7 @@ initialize_storage <- function() {
       "primary_driver TEXT,",
       "headline TEXT,",
       "memo_text TEXT,",
+      "recommended_action TEXT,",
       "triage_json TEXT,",
       "metrics_json TEXT,",
       "knowledge_json TEXT,",
@@ -46,6 +64,10 @@ initialize_storage <- function() {
       ");"
     )
   )
+
+  ensure_table_column(conn, "alerts", "reference_type", "TEXT")
+  ensure_table_column(conn, "alerts", "reference_level", "REAL")
+  ensure_table_column(conn, "analyses", "recommended_action", "TEXT")
 
   invisible(TRUE)
 }
@@ -60,6 +82,8 @@ insert_alert_record <- function(alert, raw_payload) {
     event_type = safe_chr(alert$event_type, default = "watchlist_signal"),
     source = safe_chr(alert$source, default = "unknown"),
     trigger_price = safe_num(alert$trigger_price, default = NA_real_),
+    reference_type = safe_chr(alert$reference_type, default = ""),
+    reference_level = safe_num(alert$reference_level, default = NA_real_),
     message = safe_chr(alert$message, default = ""),
     raw_payload_json = jsonlite::toJSON(
       raw_payload,
@@ -88,6 +112,7 @@ save_analysis_record <- function(alert_id, analysis) {
     primary_driver = safe_chr(analysis$risk$primary_driver, default = "baseline"),
     headline = safe_chr(analysis$memo$headline, default = ""),
     memo_text = safe_chr(analysis$memo$memo, default = ""),
+    recommended_action = safe_chr(analysis$memo$recommended_action, default = ""),
     triage_json = jsonlite::toJSON(
       analysis$triage,
       auto_unbox = TRUE,
@@ -122,6 +147,8 @@ fetch_alert_history <- function(limit = 25L) {
       a.event_type,
       a.source,
       a.trigger_price,
+      a.reference_type,
+      a.reference_level,
       a.message,
       n.risk_level,
       n.primary_driver,
@@ -142,8 +169,10 @@ fetch_analysis_by_id <- function(alert_id) {
 
   sql <- sprintf(
     "SELECT a.id AS alert_id, a.received_at, a.symbol, a.event_type,
-            a.source, a.trigger_price, a.message, a.raw_payload_json,
+            a.source, a.trigger_price, a.reference_type, a.reference_level,
+            a.message, a.raw_payload_json,
             n.risk_level, n.primary_driver, n.headline, n.memo_text,
+            n.recommended_action,
             n.triage_json, n.metrics_json, n.knowledge_json
      FROM alerts a LEFT JOIN analyses n ON a.id = n.alert_id
      WHERE a.id = %d LIMIT 1;",
@@ -161,6 +190,8 @@ fetch_analysis_by_id <- function(alert_id) {
       event_type = safe_chr(row$event_type[[1]], default = "watchlist_signal"),
       source = safe_chr(row$source[[1]], default = "unknown"),
       trigger_price = safe_num(row$trigger_price[[1]], default = NA_real_),
+      reference_type = safe_chr(row$reference_type[[1]], default = ""),
+      reference_level = safe_num(row$reference_level[[1]], default = NA_real_),
       message = safe_chr(row$message[[1]], default = "")
     ),
     raw_payload = parse_json_safely(row$raw_payload_json[[1]]),
@@ -169,7 +200,8 @@ fetch_analysis_by_id <- function(alert_id) {
     knowledge = parse_json_safely(row$knowledge_json[[1]]),
     memo = list(
       headline = safe_chr(row$headline[[1]], default = ""),
-      memo = safe_chr(row$memo_text[[1]], default = "")
+      memo = safe_chr(row$memo_text[[1]], default = ""),
+      recommended_action = safe_chr(row$recommended_action[[1]], default = "")
     )
   )
 }
@@ -193,12 +225,15 @@ fetch_latest_analysis <- function(symbol = NULL) {
       a.event_type,
       a.source,
       a.trigger_price,
+      a.reference_type,
+      a.reference_level,
       a.message,
       a.raw_payload_json,
       n.risk_level,
       n.primary_driver,
       n.headline,
       n.memo_text,
+      n.recommended_action,
       n.triage_json,
       n.metrics_json,
       n.knowledge_json
@@ -223,6 +258,8 @@ fetch_latest_analysis <- function(symbol = NULL) {
       event_type = safe_chr(row$event_type[[1]], default = "watchlist_signal"),
       source = safe_chr(row$source[[1]], default = "unknown"),
       trigger_price = safe_num(row$trigger_price[[1]], default = NA_real_),
+      reference_type = safe_chr(row$reference_type[[1]], default = ""),
+      reference_level = safe_num(row$reference_level[[1]], default = NA_real_),
       message = safe_chr(row$message[[1]], default = "")
     ),
     raw_payload = parse_json_safely(row$raw_payload_json[[1]]),
@@ -231,7 +268,8 @@ fetch_latest_analysis <- function(symbol = NULL) {
     knowledge = parse_json_safely(row$knowledge_json[[1]]),
     memo = list(
       headline = safe_chr(row$headline[[1]], default = ""),
-      memo = safe_chr(row$memo_text[[1]], default = "")
+      memo = safe_chr(row$memo_text[[1]], default = ""),
+      recommended_action = safe_chr(row$recommended_action[[1]], default = "")
     )
   )
 }

@@ -1,5 +1,5 @@
-APP_TITLE <- "TradingView"
-APP_SUBTITLE <- "Multi-Agent Market Risk Dashboard"
+APP_TITLE <- "Market Stress Copilot"
+APP_SUBTITLE <- "TradingView Signals + Multi-Agent Risk Dashboard"
 
 DEFAULT_LOOKBACK <- 120L
 
@@ -73,5 +73,13 @@ SIMULATED_EVENT_LIBRARY <- list(
   list(
     event_type = "break_prior_low",
     message = "Price broke the prior swing low and failed to reclaim it on the next bar."
+  ),
+  list(
+    event_type = "support_break",
+    message = "Price slipped below a nearby support zone and failed to recover it."
+  ),
+  list(
+    event_type = "resistance_break",
+    message = "Price pushed through a nearby resistance zone with follow-through buying."
   )
 )

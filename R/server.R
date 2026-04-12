@@ -19,6 +19,50 @@ empty_risk <- function(symbol, message = "") {
   )
 }
 
+format_case_meta <- function(case_row) {
+  parts <- c()
+
+  if ("case_date" %in% names(case_row)) {
+    case_date <- safe_chr(case_row$case_date[[1]], default = "")
+    if (nzchar(case_date)) parts <- c(parts, case_date)
+  }
+  if ("asset_focus" %in% names(case_row)) {
+    asset_focus <- safe_chr(case_row$asset_focus[[1]], default = "")
+    if (nzchar(asset_focus)) parts <- c(parts, asset_focus)
+  }
+  if ("market_regime" %in% names(case_row)) {
+    market_regime <- safe_chr(case_row$market_regime[[1]], default = "")
+    if (nzchar(market_regime)) parts <- c(parts, market_regime)
+  }
+  if ("event_type" %in% names(case_row)) {
+    event_type <- safe_chr(case_row$event_type[[1]], default = "")
+    if (nzchar(event_type)) parts <- c(parts, title_case(event_type))
+  }
+
+  paste(parts, collapse = " | ")
+}
+
+render_historical_case_cards <- function(cases, empty_message = "No cases found.") {
+  if (!nrow(cases)) return(p(empty_message))
+
+  lapply(seq_len(nrow(cases)), function(i) {
+    case_row <- cases[i, , drop = FALSE]
+    meta_line <- format_case_meta(case_row)
+
+    div(
+      class = "knowledge-card muted",
+      if (nzchar(meta_line)) div(class = "knowledge-kicker", meta_line),
+      div(class = "knowledge-title", safe_chr(case_row$case_name[[1]], default = "Untitled case")),
+      p(class = "knowledge-copy", safe_chr(case_row$summary[[1]], default = "")),
+      if ("watch_items" %in% names(case_row) &&
+          nzchar(safe_chr(case_row$watch_items[[1]], default = ""))) {
+        p(class = "knowledge-foot",
+          paste("Watch:", safe_chr(case_row$watch_items[[1]], default = "")))
+      }
+    )
+  })
+}
+
 # ========== Asset Dashboard Module Server ==========
 
 assetDashboardServer <- function(id) {
@@ -63,32 +107,50 @@ assetDashboardServer <- function(id) {
     # ── Reactive 2: OpenAI agent analysis ──────────────────────────────────
     # Returns a list with $error / $triage / $memo / $knowledge.
     # Never throws — always returns a safe value so outputs never crash.
+    latest_stored_analysis <- reactive({
+      req(input$asset)
+      input$asset; alerts_data(); refresh_trigger()
+      tryCatch(
+        fetch_latest_analysis(symbol = input$asset),
+        error = function(e) NULL
+      )
+    })
+
     ai_analysis <- reactive({
       req(input$asset)
       input$asset; selected_lookback(); refresh_trigger()
+
+      stored <- latest_stored_analysis()
+      if (!is.null(stored) && !is.null(stored$triage) && !is.null(stored$memo)) {
+        return(list(
+          error           = FALSE,
+          api_key_missing = FALSE,
+          source          = "stored",
+          message         = NULL,
+          alert           = stored$alert,
+          triage          = stored$triage,
+          memo            = stored$memo,
+          knowledge       = stored$knowledge,
+          risk            = stored$risk
+        ))
+      }
 
       if (!nzchar(openai_key())) {
         return(list(
           error           = TRUE,
           api_key_missing = TRUE,
-          message         = "OpenAI API key not configured. Add OPENAI_API_KEY=sk-... to your .env file and restart the app.",
-          alert     = NULL,
-          triage    = NULL,
-          memo      = NULL,
-          knowledge = NULL
+          source          = "empty",
+          message         = "No stored alert analysis is available for this asset. Add OPENAI_API_KEY=sk-... to your .env file and restart the app, then simulate again.",
+          alert           = NULL,
+          triage          = NULL,
+          memo            = NULL,
+          knowledge       = NULL,
+          risk            = NULL
         ))
       }
 
       mkt <- market_risk()
-
-      alert <- list(
-        symbol        = input$asset,
-        event_type    = "baseline_check",
-        source        = "system",
-        trigger_price = safe_num(mkt$latest_price, default = NA_real_),
-        message       = "Baseline risk snapshot for the selected asset.",
-        received_at   = Sys.time()
-      )
+      alert <- baseline_alert(input$asset)
 
       tryCatch({
         triage    <- signal_triage_agent(alert)
@@ -99,21 +161,27 @@ assetDashboardServer <- function(id) {
         )
         memo <- risk_memo_agent(alert, triage, mkt, knowledge)
         list(
-          error     = FALSE,
-          alert     = alert,
-          triage    = triage,
-          memo      = memo,
-          knowledge = knowledge
+          error           = FALSE,
+          api_key_missing = FALSE,
+          source          = "baseline",
+          message         = NULL,
+          alert           = alert,
+          triage          = triage,
+          memo            = memo,
+          knowledge       = knowledge,
+          risk            = mkt
         )
       }, error = function(e) {
         list(
           error           = TRUE,
           api_key_missing = FALSE,
+          source          = "baseline_error",
           message         = conditionMessage(e),
           alert           = alert,
           triage          = NULL,
           memo            = NULL,
-          knowledge       = NULL
+          knowledge       = NULL,
+          risk            = mkt
         )
       })
     })
@@ -128,8 +196,13 @@ assetDashboardServer <- function(id) {
         return()
       }
       tryCatch({
-        payload <- build_simulated_alert(input$asset)
+        payload <- build_simulated_alert(
+          input$asset,
+          lookback = selected_lookback(),
+          event_type = input$scenario
+        )
         result  <- process_and_store_alert(payload, lookback = selected_lookback())
+        refresh_trigger(refresh_trigger() + 1)
         showNotification(
           glue("Stored alert #{result$alert_id} for {input$asset}."),
           type = "message"
@@ -208,12 +281,11 @@ assetDashboardServer <- function(id) {
       div(class = cls, format_number(score, accuracy = 0.01))
     })
     output$kpi_last_alert <- renderUI({
-      ai <- ai_analysis()
-      ts <- if (!isTRUE(ai$error) && !is.null(ai$alert))
-              ai$alert$received_at
-            else
-              Sys.time()
-      div(class = "kpi-value small", format_ts(ts))
+      latest <- latest_stored_analysis()
+      div(
+        class = "kpi-value small",
+        if (!is.null(latest) && !is.null(latest$alert)) format_ts(latest$alert$received_at) else "No alerts yet"
+      )
     })
 
     # ── TradingView chart (iframe embed — no JS, no race condition) ────────
@@ -233,7 +305,36 @@ assetDashboardServer <- function(id) {
       }
       triage <- ai$triage
       alert  <- ai$alert
+      summary_items <- list(
+        list(label = "Event Type", value = title_case(alert$event_type)),
+        list(label = "Signal Type", value = title_case(triage$signal_type)),
+        list(label = "Trigger Price", value = format_dollar(alert$trigger_price, accuracy = 0.01)),
+        list(
+          label = "Reference",
+          value = if (nzchar(safe_chr(alert$reference_type, default = ""))) {
+            paste0(
+              title_case(alert$reference_type),
+              " @ ",
+              format_dollar(alert$reference_level, accuracy = 0.01)
+            )
+          } else {
+            "N/A"
+          }
+        ),
+        list(label = "Severity", value = toupper(safe_chr(triage$severity_hint, default = "medium"))),
+        list(label = "Received", value = format_ts(alert$received_at))
+      )
       tagList(
+        div(
+          class = "triage-summary-grid",
+          lapply(summary_items, function(item) {
+            div(
+              class = "triage-summary-box",
+              div(class = "triage-summary-label", item$label),
+              div(class = "triage-summary-value", item$value)
+            )
+          })
+        ),
         div(class = "agent-title", title_case(triage$signal_type)),
         p(class = "agent-copy", safe_chr(triage$rationale, default = "")),
         div(class = "inline-meta",
@@ -375,18 +476,26 @@ assetDashboardServer <- function(id) {
       if (!nrow(history)) {
         history <- tibble::tibble(
           received_at    = character(), symbol = character(),
-          event_type     = character(), risk_level = character(),
-          primary_driver = character(), trigger_price = numeric()
+          event_type     = character(), reference_type = character(),
+          reference_level = character(), risk_level = character(),
+          primary_driver = character(), trigger_price = character()
         )
       }
+      if ("reference_type" %in% names(history))
+        history$reference_type <- vapply(history$reference_type, title_case, character(1))
+      if ("reference_level" %in% names(history))
+        history$reference_level <- vapply(history$reference_level, format_dollar, character(1), accuracy = 0.01)
+      if ("trigger_price" %in% names(history))
+        history$trigger_price <- vapply(history$trigger_price, format_dollar, character(1), accuracy = 0.01)
       cols <- intersect(
         c("received_at", "symbol", "event_type",
+          "reference_type", "reference_level",
           "risk_level", "primary_driver", "trigger_price"),
         names(history)
       )
       DT::datatable(history[, cols], rownames = FALSE,
         class   = "compact stripe hover",
-        options = list(pageLength = 5, dom = "tip", ordering = FALSE))
+        options = list(pageLength = 5, dom = "tip", ordering = FALSE, scrollX = TRUE))
     }, server = FALSE)
 
   }) # end moduleServer
@@ -435,7 +544,6 @@ app_server <- function(input, output, session) {
 
   output$overview_knowledge <- renderUI({
     terms <- tryCatch(read_risk_terms(),       error = function(e) data.frame())
-    cases <- tryCatch(read_historical_cases(), error = function(e) data.frame())
     tagList(
       div(class = "section-label", "Risk Terms"),
       if (nrow(terms) > 0) {
@@ -446,16 +554,7 @@ app_server <- function(input, output, session) {
             if (!is.null(terms$implication) && nzchar(terms$implication[[i]]))
               p(class = "knowledge-foot", terms$implication[[i]])
           ))
-      } else p("No risk terms found."),
-      div(class = "section-label top-space", "Historical Cases"),
-      if (nrow(cases) > 0) {
-        lapply(seq_len(nrow(cases)), function(i)
-          div(class = "knowledge-card muted",
-            div(class = "knowledge-title", cases$case_name[[i]]),
-            p(class = "knowledge-copy", cases$summary[[i]]),
-            p(class = "knowledge-foot", paste("Watch:", cases$watch_items[[i]]))
-          ))
-      } else p("No cases found.")
+      } else p("No risk terms found.")
     )
   })
 
@@ -497,18 +596,24 @@ app_server <- function(input, output, session) {
     if (!nrow(history)) {
       history <- tibble::tibble(
         alert_id = integer(), received_at = character(), symbol = character(),
-        event_type = character(), risk_level = character(),
+        event_type = character(), reference_type = character(),
+        reference_level = character(), risk_level = character(),
         primary_driver = character(), headline = character()
       )
     }
+    if ("reference_type" %in% names(history))
+      history$reference_type <- vapply(history$reference_type, title_case, character(1))
+    if ("reference_level" %in% names(history))
+      history$reference_level <- vapply(history$reference_level, format_dollar, character(1), accuracy = 0.01)
     cols <- intersect(
       c("alert_id", "received_at", "symbol", "event_type",
+        "reference_type", "reference_level",
         "risk_level", "primary_driver", "headline"),
       names(history)
     )
     DT::datatable(history[, cols], rownames = FALSE, selection = "single",
       class = "compact stripe hover",
-      options = list(pageLength = 15, dom = "ltip"))
+      options = list(pageLength = 15, dom = "ltip", scrollX = TRUE))
   }, server = FALSE)
 
   observeEvent(input$ops_alert_table_rows_selected, {
@@ -546,29 +651,38 @@ app_server <- function(input, output, session) {
     if (is.null(d)) return(p("Select a row above."))
     tagList(
       div(class = "memo-headline", safe_chr(d$memo$headline, "")),
-      tags$pre(class = "memo-body", safe_chr(d$memo$memo, ""))
+      tags$pre(class = "memo-body", safe_chr(d$memo$memo, "")),
+      if (nzchar(safe_chr(d$memo$recommended_action, "")))
+        div(class = "memo-action",
+            strong("Next step: "), safe_chr(d$memo$recommended_action, ""))
     )
   })
 
   output$ops_knowledge_viewer <- renderUI({
-    terms <- tryCatch(read_risk_terms(),       error = function(e) data.frame())
-    cases <- tryCatch(read_historical_cases(), error = function(e) data.frame())
-    tagList(
-      h5("Risk Terms"),
-      if (nrow(terms) > 0)
-        lapply(seq_len(nrow(terms)), function(i)
-          div(class = "knowledge-card",
-            div(class = "knowledge-title", terms$term[[i]]),
-            p(class = "knowledge-copy", terms$definition[[i]])))
-      else p("No risk terms found."),
-      h5(class = "mt-3", "Historical Cases"),
-      if (nrow(cases) > 0)
-        lapply(seq_len(nrow(cases)), function(i)
-          div(class = "knowledge-card muted",
-            div(class = "knowledge-title", cases$case_name[[i]]),
-            p(class = "knowledge-copy", cases$summary[[i]]),
-            p(class = "knowledge-foot", paste("Watch:", cases$watch_items[[i]]))))
-      else p("No cases found.")
+    d <- ops_detail()
+    selected_symbol <- if (!is.null(d)) {
+      safe_chr(d$alert$symbol, default = "")
+    } else if (!is.null(input$ops_asset_filter) && input$ops_asset_filter != "All") {
+      input$ops_asset_filter
+    } else {
+      ""
+    }
+
+    cases <- tryCatch({
+      if (nzchar(selected_symbol)) {
+        find_asset_historical_cases(selected_symbol, limit = 4L)
+      } else {
+        head(sort_historical_cases(read_historical_cases()), 4L)
+      }
+    }, error = function(e) data.frame())
+
+    render_historical_case_cards(
+      cases,
+      empty_message = if (nzchar(selected_symbol)) {
+        paste("No historical cases found for", selected_symbol, ".")
+      } else {
+        "No historical cases found."
+      }
     )
   })
 
