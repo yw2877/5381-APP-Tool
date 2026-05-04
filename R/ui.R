@@ -375,7 +375,7 @@ page_quality_dashboard <- function() {
     div(
       class = "ops-header",
       h2("Quality Dashboard"),
-      p("Evidence of AI performance: pass rate, iteration distribution, latency, error rate, and dimension scores from the Critic Agent.")
+      p("Evidence of AI performance: pass rate, quality scores over time, dimension breakdown, and iteration distribution from the Critic Agent.")
     ),
 
     div(
@@ -405,27 +405,14 @@ page_quality_dashboard <- function() {
       kpi_box("Pass Rate",         "qd_kpi_pass_rate",
               "Percentage of memos that passed the Critic's threshold (>= 0.75)."),
       kpi_box("Avg Iterations",    "qd_kpi_avg_iter",
-              "Average number of memo regenerations per alert. >1 means the loop fired."),
-      kpi_box("p95 Latency",       "qd_kpi_p95",
-              "95th percentile end-to-end latency per agent run, in milliseconds."),
-      kpi_box("Error Rate",        "qd_kpi_err",
-              "Fraction of agent runs that hit a hard error (network, schema, key).")
+              "Average number of memo regenerations per alert. >1 means the loop fired.")
     ),
 
-    div(
-      class = "qd-grid",
-      card(
-        class = "msc-card",
-        card_header("Quality Score Over Time",
-                    info_tip("Each dot is one alert. Green = passed Critic. Red = failed.")),
-        plotlyOutput("qd_time_series", height = "300px")
-      ),
-      card(
-        class = "msc-card",
-        card_header("Dimension Breakdown",
-                    info_tip("Mean score per Critic dimension. Lowest bar = where the system is weakest.")),
-        plotlyOutput("qd_dimensions", height = "300px")
-      )
+    card(
+      class = "msc-card",
+      card_header("Quality Score Over Time",
+                  info_tip("Each dot is one alert. Green = passed Critic. Red = failed.")),
+      plotlyOutput("qd_time_series", height = "280px")
     ),
 
     div(
@@ -433,24 +420,16 @@ page_quality_dashboard <- function() {
       style = "margin-top:1rem;",
       card(
         class = "msc-card",
-        card_header("Latency by Agent",
-                    info_tip("Box plot of latency_ms per agent run. Shows the cost of each pipeline stage.")),
-        plotlyOutput("qd_latency", height = "300px")
+        card_header("Dimension Breakdown",
+                    info_tip("Mean score per Critic dimension. Lowest bar = where the system is weakest.")),
+        plotlyOutput("qd_dimensions", height = "280px")
       ),
       card(
         class = "msc-card",
         card_header("Iteration Distribution",
                     info_tip("How many alerts needed 1 vs 2 memo iterations. >1 means the Critic loop forced a rewrite.")),
-        plotlyOutput("qd_iterations", height = "300px")
+        plotlyOutput("qd_iterations", height = "280px")
       )
-    ),
-
-    card(
-      class = "msc-card",
-      style = "margin-top:1rem;",
-      card_header("Error Rate Over Time",
-                  info_tip("Rolling 1-hour error rate from the agent_runs telemetry. Should be near 0 when the system is healthy.")),
-      plotlyOutput("qd_errors", height = "260px")
     ),
 
     card(

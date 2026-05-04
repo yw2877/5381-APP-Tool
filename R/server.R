@@ -1155,22 +1155,6 @@ app_server <- function(input, output, session) {
     val <- if (nrow(s) > 0) mean(s$iterations_used, na.rm = TRUE) else NA_real_
     div(class = "kpi-value", format_number(val, 0.01))
   })
-  output$qd_kpi_p95 <- renderUI({
-    r <- qd_runs()
-    val <- if (nrow(r) > 0) {
-      stats::quantile(r$latency_ms, 0.95, na.rm = TRUE)
-    } else NA_real_
-    div(class = "kpi-value",
-        if (is.finite(val)) sprintf("%d ms", as.integer(val)) else "NA")
-  })
-  output$qd_kpi_err <- renderUI({
-    r <- qd_runs()
-    val <- if (nrow(r) > 0) {
-      mean(!is.na(r$error_class), na.rm = TRUE)
-    } else NA_real_
-    cls <- if (is.finite(val) && val > 0.05) "kpi-value warning" else "kpi-value"
-    div(class = cls, format_pct(val, 1))
-  })
 
   # ----- Time series -----
   output$qd_time_series <- renderPlotly({
@@ -1249,33 +1233,6 @@ app_server <- function(input, output, session) {
       plotly::config(displayModeBar = FALSE, displaylogo = FALSE)
   })
 
-  # ----- Latency by agent -----
-  output$qd_latency <- renderPlotly({
-    r <- qd_runs()
-    if (nrow(r) == 0) {
-      return(plotly::plot_ly() |> plotly::layout(
-        annotations = list(list(text = "No data yet",
-          xref="paper",yref="paper",x=0.5,y=0.5,showarrow=FALSE)),
-        paper_bgcolor="rgba(0,0,0,0)"
-      ) |> plotly::config(displayModeBar=FALSE))
-    }
-    plotly::plot_ly(
-      data = r, x = ~agent_name, y = ~latency_ms, type = "box",
-      boxpoints = "outliers",
-      marker = list(color = "#5b8def"),
-      line   = list(color = "#7e8593")
-    ) |>
-      plotly::layout(
-        xaxis = list(title = ""),
-        yaxis = list(title = "ms"),
-        paper_bgcolor = "rgba(0,0,0,0)",
-        plot_bgcolor  = "rgba(0,0,0,0)",
-        margin = list(l = 50, r = 20, t = 10, b = 40)
-      ) |>
-      apply_plotly_dark() |>
-      plotly::config(displayModeBar = FALSE, displaylogo = FALSE)
-  })
-
   # ----- Iteration distribution -----
   output$qd_iterations <- renderPlotly({
     s <- qd_scores()
@@ -1304,41 +1261,6 @@ app_server <- function(input, output, session) {
         paper_bgcolor = "rgba(0,0,0,0)",
         plot_bgcolor  = "rgba(0,0,0,0)",
         margin = list(l = 50, r = 20, t = 10, b = 40)
-      ) |>
-      apply_plotly_dark() |>
-      plotly::config(displayModeBar = FALSE, displaylogo = FALSE)
-  })
-
-  # ----- Error rate over time (rolling 1h) -----
-  output$qd_errors <- renderPlotly({
-    r <- qd_runs()
-    if (nrow(r) == 0) {
-      return(plotly::plot_ly() |> plotly::layout(
-        annotations = list(list(text = "No data yet",
-          xref="paper",yref="paper",x=0.5,y=0.5,showarrow=FALSE)),
-        paper_bgcolor="rgba(0,0,0,0)"
-      ) |> plotly::config(displayModeBar=FALSE))
-    }
-    r$ts  <- as.POSIXct(r$started_at, tz = Sys.timezone())
-    r$err <- as.integer(!is.na(r$error_class))
-    r <- r[order(r$ts), ]
-    # rolling mean over 20 points (cheap proxy for 1h-ish window)
-    win <- min(20L, nrow(r))
-    r$rolling_err <- zoo::rollmean(r$err, k = win, fill = NA, align = "right")
-
-    plotly::plot_ly(
-      data = r, x = ~ts, y = ~rolling_err,
-      type = "scatter", mode = "lines",
-      line = list(color = "#ff5470", width = 2),
-      hovertemplate = "Error rate: %{y:.1%}<br>%{x}<extra></extra>"
-    ) |>
-      plotly::layout(
-        xaxis = list(title = ""),
-        yaxis = list(title = "Error rate", tickformat = ".0%",
-                     range = c(0, max(0.1, max(r$rolling_err, na.rm = TRUE) * 1.2))),
-        paper_bgcolor = "rgba(0,0,0,0)",
-        plot_bgcolor  = "rgba(0,0,0,0)",
-        margin = list(l = 50, r = 20, t = 10, b = 30)
       ) |>
       apply_plotly_dark() |>
       plotly::config(displayModeBar = FALSE, displaylogo = FALSE)
@@ -1566,9 +1488,9 @@ app_server <- function(input, output, session) {
     outputOptions(output, .id, suspendWhenHidden = TRUE)
   }
   for (.id in c("qd_kpi_total", "qd_kpi_avg_score", "qd_kpi_pass_rate",
-                "qd_kpi_avg_iter", "qd_kpi_p95", "qd_kpi_err",
-                "qd_time_series", "qd_dimensions", "qd_latency",
-                "qd_iterations", "qd_errors", "qd_low_scores")) {
+                "qd_kpi_avg_iter",
+                "qd_time_series", "qd_dimensions",
+                "qd_iterations", "qd_low_scores")) {
     outputOptions(output, .id, suspendWhenHidden = TRUE)
   }
   for (.id in c("ops_alert_table", "ops_raw_payload", "ops_triage_json",
@@ -1614,9 +1536,9 @@ app_server <- function(input, output, session) {
         "overview_knowledge", "overview_playbook",
         # Quality Dashboard
         "qd_kpi_total", "qd_kpi_avg_score", "qd_kpi_pass_rate",
-        "qd_kpi_avg_iter", "qd_kpi_p95", "qd_kpi_err",
-        "qd_time_series", "qd_dimensions", "qd_latency",
-        "qd_iterations", "qd_errors", "qd_low_scores",
+        "qd_kpi_avg_iter",
+        "qd_time_series", "qd_dimensions",
+        "qd_iterations", "qd_low_scores",
         # Alert Log / Ops
         "ops_alert_table", "ops_raw_payload", "ops_triage_json",
         "ops_metrics_json", "ops_memo_output", "ops_knowledge_viewer",
