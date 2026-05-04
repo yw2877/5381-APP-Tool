@@ -793,6 +793,18 @@ assetDashboardServer <- function(id, parent_session = NULL) {
                        ordering = FALSE, scrollX = TRUE))
     }, server = FALSE)
 
+    # Belt-and-braces: explicitly mark heavy outputs as suspended when their
+    # tabPanelBody is hidden. Default is TRUE in modern Shiny but type="hidden"
+    # tabsets sometimes mis-detect visibility; making it explicit is cheap.
+    for (oid in c("tv_chart", "price_vol_chart", "alert_history",
+                  "agent_trace_html", "quality_snapshot",
+                  "triage_panel", "risk_metrics_panel",
+                  "memo_panel", "critic_panel",
+                  "kpi_price", "kpi_vol", "kpi_dd", "kpi_var",
+                  "kpi_regime", "kpi_last_alert")) {
+      outputOptions(output, oid, suspendWhenHidden = TRUE)
+    }
+
   }) # end moduleServer
 }
 
@@ -830,29 +842,15 @@ fetch_quality_score_for_alert <- function(alert_id) {
 # Cross-asset risk table (parallelized)
 # ============================================================================
 compute_cross_asset_risk_raw <- function() {
+  # Serial Yahoo fetch. Previous furrr::future_map(workers = 4) approach
+  # spawned 4 R subprocesses, each re-loading the full package stack
+  # (~300-500 MB each). On a 1 GB droplet that pushed total RSS over the
+  # cgroup limit and the app got OOM-killed during cross-asset render.
+  # Serial is ~3-5s slower for first uncached load but uses no extra RAM.
   syms <- APP_ASSETS$label
-
-  rows <- tryCatch({
-    if (requireNamespace("furrr", quietly = TRUE) &&
-        requireNamespace("future", quietly = TRUE)) {
-      future::plan(future::multisession, workers = min(4L, length(syms)))
-      out <- furrr::future_map(syms, function(sym) {
-        tryCatch(compute_risk_metrics(sym, lookback = 120L),
-                 error = function(e) empty_risk(sym, conditionMessage(e)))
-      })
-      future::plan(future::sequential)
-      out
-    } else {
-      lapply(syms, function(sym) {
-        tryCatch(compute_risk_metrics(sym, lookback = 120L),
-                 error = function(e) empty_risk(sym, conditionMessage(e)))
-      })
-    }
-  }, error = function(e) {
-    lapply(syms, function(sym) {
-      tryCatch(compute_risk_metrics(sym, lookback = 120L),
-               error = function(e) empty_risk(sym, conditionMessage(e)))
-    })
+  rows <- lapply(syms, function(sym) {
+    tryCatch(compute_risk_metrics(sym, lookback = 120L),
+             error = function(e) empty_risk(sym, conditionMessage(e)))
   })
   names(rows) <- syms
   rows
@@ -1533,6 +1531,26 @@ app_server <- function(input, output, session) {
       class = "compact stripe hover",
       options = list(pageLength = 8, dom = "t", scrollX = TRUE))
   }, server = FALSE)
+
+  # Suspend non-active page outputs when their tabPanelBody is hidden.
+  # Cuts main-thread work + RAM by avoiding initial-render of every tab's
+  # plotly / DT / cross-asset Yahoo fetches when user is on a different page.
+  for (oid in c(
+        # Risk Overview
+        "overview_risk_table", "overview_asset_cards",
+        "overview_knowledge", "overview_playbook",
+        # Quality Dashboard
+        "qd_kpi_total", "qd_kpi_avg_score", "qd_kpi_pass_rate",
+        "qd_kpi_avg_iter", "qd_kpi_p95", "qd_kpi_err",
+        "qd_time_series", "qd_dimensions", "qd_latency",
+        "qd_iterations", "qd_errors", "qd_low_scores",
+        # Alert Log / Ops
+        "ops_alert_table", "ops_raw_payload", "ops_triage_json",
+        "ops_metrics_json", "ops_memo_output", "ops_knowledge_viewer",
+        "ops_system_status", "ops_agent_runs"
+      )) {
+    outputOptions(output, oid, suspendWhenHidden = TRUE)
+  }
 }
 
 # Helper used in qd_iterations

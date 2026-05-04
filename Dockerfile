@@ -31,9 +31,7 @@ RUN install2.r --error --skipinstalled --ncpus -1 \
     dotenv \
     digest \
     plumber \
-    later \
-    future \
-    furrr
+    later
 
 WORKDIR /app
 
