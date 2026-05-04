@@ -130,9 +130,11 @@ historical_var_es <- function(price_df, window = 60L, conf = 0.95) {
 correlation_jump <- function(symbol,
                               benchmark_symbol  = "SPY",
                               lookback_short    = 20L,
-                              lookback_long     = 60L) {
+                              lookback_long     = 60L,
+                              lhs_prices        = NULL) {
   fetch_lb <- max(lookback_short, lookback_long) + 5L
-  lhs    <- get_price_history(symbol,           lookback = fetch_lb)
+  lhs <- if (!is.null(lhs_prices)) lhs_prices else
+    get_price_history(symbol, lookback = fetch_lb)
   rhs    <- get_price_history(benchmark_symbol, lookback = fetch_lb)
   merged <- merge(lhs[c("date", "ret")], rhs[c("date", "ret")],
                   by = "date", suffixes = c("_lhs", "_rhs"))
@@ -163,7 +165,7 @@ compute_risk_metrics <- function(symbol, lookback = DEFAULT_LOOKBACK) {
   tails    <- historical_var_es(prices)
   vol20    <- rolling_volatility(prices, window = 20L)
   drawdown <- max_drawdown(prices)
-  corr_jmp <- correlation_jump(symbol)
+  corr_jmp <- correlation_jump(symbol, lhs_prices = prices)
   regime   <- regime_score(prices)
 
   driver_scores <- c(

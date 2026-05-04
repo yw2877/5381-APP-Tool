@@ -248,3 +248,155 @@ build_simulated_alert <- function(symbol, lookback = DEFAULT_LOOKBACK, event_typ
     timestamp = format_ts(Sys.time())
   )
 }
+
+demo_event_type_for_asset <- function(symbol) {
+  switch(
+    safe_chr(symbol, default = "SPY"),
+    "BTCUSDT" = "atr_expansion",
+    "ETHUSDT" = "support_break",
+    "SPY"     = "support_break",
+    "QQQ"     = "break_prior_low",
+    "NVDA"    = "death_cross_volume",
+    "support_break"
+  )
+}
+
+record_demo_agent_run <- function(alert_id, agent_name, iteration = 1L, expr) {
+  started <- Sys.time()
+  value <- force(expr)
+  finished <- Sys.time()
+  record_agent_run(
+    alert_id = alert_id,
+    agent_name = agent_name,
+    iteration = as.integer(iteration),
+    started_at = started,
+    finished_at = finished,
+    latency_ms = as.integer(difftime(finished, started, units = "secs") * 1000),
+    n_retries = 0L,
+    cache_hit = FALSE,
+    validation_passed = TRUE,
+    model = "deterministic_demo"
+  )
+  value
+}
+
+run_demo_pipeline <- function(alert, lookback = DEFAULT_LOOKBACK, alert_id = NULL) {
+  triage <- record_demo_agent_run(
+    alert_id,
+    "triage",
+    expr = {
+      out <- signal_triage_fallback(alert)
+      out$agent <- "Signal Triage Agent"
+      out$degraded <- FALSE
+      out
+    }
+  )
+
+  risk <- risk_engine_agent(alert, lookback = lookback, alert_id = alert_id)
+
+  knowledge <- retrieve_knowledge(
+    signal_type = triage$signal_type,
+    symbol = alert$symbol,
+    risk_level = risk$risk_level
+  )
+
+  memo <- record_demo_agent_run(
+    alert_id,
+    "memo",
+    expr = {
+      out <- risk_memo_fallback(alert, triage, risk, knowledge)
+      out$degraded <- FALSE
+      out
+    }
+  )
+
+  critique <- record_demo_agent_run(
+    alert_id,
+    "critic",
+    expr = build_degraded_critique(memo, risk)
+  )
+
+  list(
+    alert = alert,
+    triage = triage,
+    risk = risk,
+    knowledge = knowledge,
+    memo = memo,
+    quality = list(
+      final_score = safe_num(critique$quality_score, default = NA_real_),
+      passed = isTRUE(critique$passes),
+      iterations_used = 1L,
+      dimension_scores = critique$dimension_scores,
+      issues = as.list(critique$issues %||% list()),
+      improvement_directives = safe_chr(critique$improvement_directives, default = ""),
+      iteration_history = list(list(
+        iteration = 1L,
+        memo = memo,
+        critique = critique,
+        t = format_ts(Sys.time())
+      )),
+      degraded = FALSE
+    )
+  )
+}
+
+preload_demo_content <- function(mode = PRELOAD_DEMO_MODE,
+                                 assets = NULL,
+                                 lookback = DEFAULT_LOOKBACK,
+                                 force = FALSE) {
+  mode <- tolower(trimws(safe_chr(mode, default = "off")))
+  if (identical(mode, "off")) {
+    return(invisible(list(ok = TRUE, skipped = "mode_off")))
+  }
+
+  if (!isTRUE(force) && count_alert_history() > 0L) {
+    return(invisible(list(ok = TRUE, skipped = "alerts_present")))
+  }
+
+  if (is.null(assets) || !length(assets)) {
+    assets <- if (nzchar(PRELOAD_DEMO_ASSETS)) {
+      trimws(strsplit(PRELOAD_DEMO_ASSETS, ",", fixed = TRUE)[[1]])
+    } else {
+      APP_ASSETS$label
+    }
+  }
+  assets <- unique(assets[nzchar(assets)])
+
+  if (identical(mode, "auto")) {
+    mode <- if (nzchar(openai_key())) "full" else "deterministic"
+  }
+
+  results <- vector("list", length(assets))
+  names(results) <- assets
+
+  for (i in seq_along(assets)) {
+    symbol <- assets[[i]]
+    payload <- build_simulated_alert(
+      symbol,
+      lookback = lookback,
+      event_type = demo_event_type_for_asset(symbol)
+    )
+
+    results[[i]] <- tryCatch({
+      if (identical(mode, "full")) {
+        process_and_store_alert(payload, lookback = lookback)
+      } else {
+        alert <- normalize_alert_payload(payload)
+        alert_id <- insert_alert_record(alert, raw_payload = payload)
+        analysis <- run_demo_pipeline(alert, lookback = lookback, alert_id = alert_id)
+        save_analysis_record(alert_id, analysis, status = "ok")
+        record_quality_score(alert_id, analysis$quality)
+        list(alert_id = alert_id, analysis = analysis, status = "ok")
+      }
+    }, error = function(e) {
+      list(
+        alert_id = NA_integer_,
+        status = "error",
+        error = conditionMessage(e),
+        symbol = symbol
+      )
+    })
+  }
+
+  invisible(list(ok = TRUE, mode = mode, assets = assets, results = results))
+}

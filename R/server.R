@@ -70,6 +70,8 @@ qd_window_cutoff <- function(window) {
   )
 }
 
+.cross_asset_risk_cache <- new.env(parent = emptyenv())
+
 # ========== Asset Dashboard Module Server ==========
 
 assetDashboardServer <- function(id, parent_session = NULL) {
@@ -77,9 +79,10 @@ assetDashboardServer <- function(id, parent_session = NULL) {
 
     selected_lookback <- reactive(as.integer(input$lookback %||% DEFAULT_LOOKBACK))
     current_asset     <- reactive(asset_row(input$asset))
+    tv_loaded         <- reactiveVal(isTRUE(ENABLE_TRADINGVIEW_IFRAME))
 
     alerts_data <- reactivePoll(
-      intervalMillis = 5000,
+      intervalMillis = 15000,
       session        = session,
       checkFunc      = function() {
         if (!file.exists(APP_DB_PATH)) return(0)
@@ -90,6 +93,7 @@ assetDashboardServer <- function(id, parent_session = NULL) {
 
     refresh_trigger <- reactiveVal(0)
     observeEvent(input$refresh_btn, refresh_trigger(refresh_trigger() + 1))
+    observeEvent(input$load_tv_chart, tv_loaded(TRUE))
 
     # ── Reactive 1: Yahoo Finance market data ──────────────────────────────
     market_risk <- reactive({
@@ -182,32 +186,15 @@ assetDashboardServer <- function(id, parent_session = NULL) {
         ))
       }
 
-      # No stored analysis, but key is present → run baseline pipeline.
-      input$asset; selected_lookback(); refresh_trigger()
-      alert <- baseline_alert(input$asset)
-      tryCatch({
-        analysis <- run_agent_pipeline(alert,
-                                       lookback = selected_lookback())
-        list(
-          error           = FALSE,
-          api_key_missing = FALSE,
-          source          = "baseline",
-          message         = NULL,
-          alert     = analysis$alert,
-          triage    = analysis$triage,
-          memo      = analysis$memo,
-          knowledge = analysis$knowledge,
-          risk      = analysis$risk,
-          quality   = analysis$quality
-        )
-      }, error = function(e) {
-        list(
-          error = TRUE, api_key_missing = FALSE,
-          source = "baseline_error", message = conditionMessage(e),
-          alert = alert, triage = NULL, memo = NULL,
-          knowledge = NULL, risk = market_risk(), quality = NULL
-        )
-      })
+      # Do not block first paint on live LLM calls; wait for an explicit Simulate.
+      list(
+        error           = FALSE,
+        api_key_missing = FALSE,
+        source          = "empty",
+        message         = "No stored memo for this asset yet. Click Simulate to run the agent pipeline.",
+        alert = NULL, triage = NULL, memo = NULL,
+        knowledge = NULL, risk = market_risk(), quality = NULL
+      )
     })
 
     # ── Simulate Alert ──────────────────────────────────────────────────────
@@ -364,9 +351,39 @@ assetDashboardServer <- function(id, parent_session = NULL) {
 
     # ── TradingView chart (lazy: don't render when tab hidden) ─────────────
     output$tv_chart <- renderUI({
+      if (!isTRUE(tv_loaded())) {
+        return(div(
+          class = "chart-wrap__placeholder",
+          div(class = "agent-placeholder",
+            div(class = "placeholder-icon", icon("chart-line")),
+            div(class = "placeholder-msg",
+              "Live TradingView chart is disabled by default for faster, more reliable demos."),
+            div(
+              style = "margin-top:0.75rem; display:flex; gap:0.75rem; flex-wrap:wrap;",
+              actionButton(
+                session$ns("load_tv_chart"),
+                "Load live chart",
+                class = "btn btn-outline-secondary"
+              ),
+              tags$a(
+                href = paste0(
+                  "https://www.tradingview.com/chart/?symbol=",
+                  utils::URLencode(current_asset()$tv_symbol[[1]], reserved = TRUE)
+                ),
+                target = "_blank",
+                rel = "noopener noreferrer",
+                class = "btn btn-outline-secondary",
+                "Open TradingView"
+              )
+            )
+          )
+        ))
+      }
       tv_widget_html(tv_symbol = current_asset()$tv_symbol[[1]])
     })
-    outputOptions(output, "tv_chart", suspendWhenHidden = TRUE)
+    outputOptions(output, "tv_chart",       suspendWhenHidden = TRUE)
+    outputOptions(output, "price_vol_chart", suspendWhenHidden = TRUE)
+    outputOptions(output, "alert_history",   suspendWhenHidden = TRUE)
 
     # ── Agent Pipeline · Trace ────────────────────────────────────────────
     # Renders one row per agent_runs entry for the current alert. Each row =
@@ -587,6 +604,12 @@ assetDashboardServer <- function(id, parent_session = NULL) {
     # ── Signal Triage Agent panel ──────────────────────────────────────────
     output$triage_panel <- renderUI({
       ai <- ai_analysis()
+      if (identical(ai$source, "empty")) {
+        return(div(class = "agent-placeholder",
+          div(class = "placeholder-icon", icon("bolt")),
+          div(class = "placeholder-msg", ai$message)
+        ))
+      }
       if (isTRUE(ai$error)) {
         return(div(class = "agent-placeholder",
           div(class = "placeholder-icon", icon(
@@ -636,6 +659,12 @@ assetDashboardServer <- function(id, parent_session = NULL) {
     # ── Risk Memo Agent panel ──────────────────────────────────────────────
     output$memo_panel <- renderUI({
       ai <- ai_analysis()
+      if (identical(ai$source, "empty")) {
+        return(div(class = "agent-placeholder",
+          div(class = "placeholder-icon", icon("bolt")),
+          div(class = "placeholder-msg", ai$message)
+        ))
+      }
       if (isTRUE(ai$error)) {
         return(div(class = "agent-placeholder",
           div(class = "placeholder-icon", icon(
@@ -659,6 +688,12 @@ assetDashboardServer <- function(id, parent_session = NULL) {
     # ── Critic Agent panel ─────────────────────────────────────────────────
     output$critic_panel <- renderUI({
       ai <- ai_analysis()
+      if (identical(ai$source, "empty")) {
+        return(div(class = "agent-placeholder",
+          div(class = "placeholder-icon", icon("bolt")),
+          div(class = "placeholder-msg", ai$message)
+        ))
+      }
       q  <- ai$quality
       if (is.null(q)) {
         return(div(class = "agent-placeholder",
@@ -733,13 +768,8 @@ assetDashboardServer <- function(id, parent_session = NULL) {
       }
 
       prices  <- ph[!is.na(ph$ret), ]
-      n       <- nrow(prices)
-      vol_vec <- rep(NA_real_, n)
-      if (n >= 20) {
-        for (i in seq(20, n))
-          vol_vec[i] <- sd(prices$ret[(i - 19):i], na.rm = TRUE) * sqrt(252)
-      }
-      prices$vol20 <- vol_vec
+      prices$vol20 <- zoo::rollapply(prices$ret, width = 20, FUN = sd,
+                                     na.rm = TRUE, fill = NA, align = "right") * sqrt(252)
 
       p1 <- plotly::plot_ly(
         prices, x = ~date, y = ~close,
@@ -842,17 +872,44 @@ fetch_quality_score_for_alert <- function(alert_id) {
 # Cross-asset risk table (parallelized)
 # ============================================================================
 compute_cross_asset_risk_raw <- function() {
-  # Serial Yahoo fetch. Previous furrr::future_map(workers = 4) approach
-  # spawned 4 R subprocesses, each re-loading the full package stack
-  # (~300-500 MB each). On a 1 GB droplet that pushed total RSS over the
-  # cgroup limit and the app got OOM-killed during cross-asset render.
-  # Serial is ~3-5s slower for first uncached load but uses no extra RAM.
+  cache <- get0("state", envir = .cross_asset_risk_cache, inherits = FALSE)
+  if (is.list(cache) &&
+      !is.null(cache$fetched_at) &&
+      difftime(Sys.time(), cache$fetched_at, units = "mins") < 5) {
+    return(cache$data)
+  }
+
   syms <- APP_ASSETS$label
-  rows <- lapply(syms, function(sym) {
-    tryCatch(compute_risk_metrics(sym, lookback = 120L),
-             error = function(e) empty_risk(sym, conditionMessage(e)))
+
+  rows <- tryCatch({
+    if (isTRUE(ENABLE_PARALLEL_RISK_OVERVIEW) &&
+        requireNamespace("furrr", quietly = TRUE) &&
+        requireNamespace("future", quietly = TRUE)) {
+      # Default stays serial because multisession workers can OOM small droplets.
+      future::plan(
+        future::multisession,
+        workers = min(MAX_RISK_OVERVIEW_WORKERS, length(syms))
+      )
+      out <- furrr::future_map(syms, function(sym) {
+        tryCatch(compute_risk_metrics(sym, lookback = 120L),
+                 error = function(e) empty_risk(sym, conditionMessage(e)))
+      })
+      future::plan(future::sequential)
+      out
+    } else {
+      lapply(syms, function(sym) {
+        tryCatch(compute_risk_metrics(sym, lookback = 120L),
+                 error = function(e) empty_risk(sym, conditionMessage(e)))
+      })
+    }
+  }, error = function(e) {
+    lapply(syms, function(sym) {
+      tryCatch(compute_risk_metrics(sym, lookback = 120L),
+               error = function(e) empty_risk(sym, conditionMessage(e)))
+    })
   })
   names(rows) <- syms
+  assign("state", list(data = rows, fetched_at = Sys.time()), envir = .cross_asset_risk_cache)
   rows
 }
 
@@ -1318,7 +1375,7 @@ app_server <- function(input, output, session) {
   # Alert Log & Ops Server
   # ============================================================================
   ops_alerts <- reactivePoll(
-    intervalMillis = 5000, session = session,
+    intervalMillis = 15000, session = session,
     checkFunc = function() {
       if (!file.exists(APP_DB_PATH)) return(0)
       as.numeric(file.info(APP_DB_PATH)$mtime)
@@ -1503,6 +1560,24 @@ app_server <- function(input, output, session) {
              "hits ", cache$hits, " / misses ", cache$misses))
     )
   })
+
+  # Suspend non-default tab outputs so they don't compute on page load.
+  # They activate the first time the user visits each tab.
+  for (.id in c("overview_risk_table", "overview_asset_cards",
+                "overview_knowledge", "overview_playbook")) {
+    outputOptions(output, .id, suspendWhenHidden = TRUE)
+  }
+  for (.id in c("qd_kpi_total", "qd_kpi_avg_score", "qd_kpi_pass_rate",
+                "qd_kpi_avg_iter", "qd_kpi_p95", "qd_kpi_err",
+                "qd_time_series", "qd_dimensions", "qd_latency",
+                "qd_iterations", "qd_errors", "qd_low_scores")) {
+    outputOptions(output, .id, suspendWhenHidden = TRUE)
+  }
+  for (.id in c("ops_alert_table", "ops_raw_payload", "ops_triage_json",
+                "ops_metrics_json", "ops_memo_output", "ops_knowledge_viewer",
+                "ops_system_status")) {
+    outputOptions(output, .id, suspendWhenHidden = TRUE)
+  }
 
   # ----- Agent runs telemetry table on Ops page -----
   output$ops_agent_runs <- renderDT({

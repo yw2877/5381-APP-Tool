@@ -58,6 +58,27 @@ LLM_MAX_RETRIES      <- as.integer(Sys.getenv("LLM_MAX_RETRIES",      unset = "3
 LLM_CACHE_TTL_MIN    <- as.integer(Sys.getenv("LLM_CACHE_TTL_MIN",    unset = "30"))
 LLM_TIMEOUT_SECONDS  <- as.integer(Sys.getenv("LLM_TIMEOUT_SECONDS",  unset = "30"))
 
+# ---------- stability / demo ----------
+ENABLE_TRADINGVIEW_IFRAME <- identical(
+  tolower(trimws(Sys.getenv("ENABLE_TRADINGVIEW_IFRAME", unset = "false"))),
+  "true"
+)
+ENABLE_PARALLEL_RISK_OVERVIEW <- identical(
+  tolower(trimws(Sys.getenv("ENABLE_PARALLEL_RISK_OVERVIEW", unset = "false"))),
+  "true"
+)
+MAX_RISK_OVERVIEW_WORKERS <- local({
+  raw <- suppressWarnings(as.integer(Sys.getenv("MAX_RISK_OVERVIEW_WORKERS", unset = "2")))
+  if (!is.finite(raw) || is.na(raw)) raw <- 2L
+  max(1L, raw)
+})
+PRELOAD_DEMO_MODE <- tolower(trimws(Sys.getenv("PRELOAD_DEMO_MODE", unset = "off")))
+PRELOAD_DEMO_ON_BOOT <- identical(
+  tolower(trimws(Sys.getenv("PRELOAD_DEMO_ON_BOOT", unset = "false"))),
+  "true"
+)
+PRELOAD_DEMO_ASSETS <- trimws(Sys.getenv("PRELOAD_DEMO_ASSETS", unset = ""))
+
 APP_ASSETS <- tibble::tribble(
   ~label,    ~symbol,   ~tv_symbol,        ~asset_class, ~base_price, ~vol_scale,
   "BTCUSDT", "BTC-USD", "BINANCE:BTCUSDT", "Crypto",     68000,       0.032,

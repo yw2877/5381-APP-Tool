@@ -1,5 +1,8 @@
 db_connect <- function() {
-  DBI::dbConnect(RSQLite::SQLite(), APP_DB_PATH)
+  conn <- DBI::dbConnect(RSQLite::SQLite(), APP_DB_PATH)
+  try(DBI::dbExecute(conn, "PRAGMA busy_timeout = 5000;"), silent = TRUE)
+  try(DBI::dbExecute(conn, "PRAGMA foreign_keys = ON;"), silent = TRUE)
+  conn
 }
 
 ensure_table_column <- function(conn, table_name, column_name, column_type) {
@@ -27,6 +30,10 @@ ensure_runtime_state <- function() {
 initialize_storage <- function() {
   conn <- db_connect()
   on.exit(DBI::dbDisconnect(conn), add = TRUE)
+
+  # WAL reduces reader/writer contention between the Shiny app and webhook.
+  try(DBI::dbExecute(conn, "PRAGMA journal_mode = WAL;"), silent = TRUE)
+  try(DBI::dbExecute(conn, "PRAGMA synchronous = NORMAL;"), silent = TRUE)
 
   DBI::dbExecute(
     conn,
@@ -361,6 +368,12 @@ fetch_alert_history <- function(limit = 25L) {
   )
 
   DBI::dbGetQuery(conn, sql)
+}
+
+count_alert_history <- function() {
+  conn <- db_connect()
+  on.exit(DBI::dbDisconnect(conn), add = TRUE)
+  DBI::dbGetQuery(conn, "SELECT COUNT(*) AS n FROM alerts;")$n[[1]]
 }
 
 # Classify analysis state for an alerts/analyses LEFT JOIN row.

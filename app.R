@@ -50,5 +50,27 @@ source("R/ui.R")
 source("R/server.R")
 
 ensure_runtime_state()
+if (isTRUE(PRELOAD_DEMO_ON_BOOT)) {
+  try(preload_demo_content(mode = PRELOAD_DEMO_MODE), silent = TRUE)
+}
+
+# Pre-warm the in-process market data cache before accepting connections.
+# This runs once per worker so subsequent sessions hit the cache (5-min TTL)
+# instead of blocking on live Yahoo Finance network calls.
+local({
+  message("[startup] Pre-warming market data cache...")
+  for (.sym in APP_ASSETS$label) {
+    tryCatch(
+      get_price_history(.sym, lookback = DEFAULT_LOOKBACK),
+      error = function(e) message("[warn] price warm-up failed for ", .sym, ": ", e$message)
+    )
+  }
+  # SPY at lookback=65 is the benchmark used by correlation_jump internally
+  tryCatch(
+    get_price_history("SPY", lookback = 65L),
+    error = function(e) message("[warn] SPY_65 warm-up failed: ", e$message)
+  )
+  message("[startup] Market data cache ready.")
+})
 
 shinyApp(ui = app_ui(), server = app_server)

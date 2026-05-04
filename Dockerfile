@@ -40,6 +40,7 @@ COPY app.R ./
 COPY run_plumber.R ./
 COPY R ./R/
 COPY plumber ./plumber/
+COPY scripts ./scripts/
 COPY www ./www/
 COPY data ./data/
 
