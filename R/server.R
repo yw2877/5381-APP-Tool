@@ -381,9 +381,7 @@ assetDashboardServer <- function(id, parent_session = NULL) {
       }
       tv_widget_html(tv_symbol = current_asset()$tv_symbol[[1]])
     })
-    outputOptions(output, "tv_chart",       suspendWhenHidden = TRUE)
-    outputOptions(output, "price_vol_chart", suspendWhenHidden = TRUE)
-    outputOptions(output, "alert_history",   suspendWhenHidden = TRUE)
+    outputOptions(output, "tv_chart", suspendWhenHidden = TRUE)
 
     # ── Agent Pipeline · Trace ────────────────────────────────────────────
     # Renders one row per agent_runs entry for the current alert. Each row =
