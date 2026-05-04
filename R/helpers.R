@@ -1,3 +1,45 @@
+# ============================================================================
+# Plotly dark theme — applied to every chart so axes match the Stealth-Ops
+# styles.css palette. Pass the result of plot_ly() through `apply_plotly_dark()`
+# at the end of the layout chain.
+# ============================================================================
+.PLOTLY_DARK_AXIS <- list(
+  gridcolor     = "#1c1f24",
+  zerolinecolor = "#1c1f24",
+  linecolor     = "#252830",
+  tickcolor     = "#252830",
+  tickfont      = list(color = "#7e8593",
+                       family = "ui-monospace, JetBrains Mono, Menlo, monospace",
+                       size = 10),
+  titlefont     = list(color = "#7e8593",
+                       family = "Inter, system-ui, sans-serif",
+                       size  = 11),
+  showgrid      = TRUE
+)
+
+# Merge the dark axis defaults with chart-specific overrides
+# (title, range, tickformat, type, etc).
+plotly_axis <- function(...) {
+  utils::modifyList(.PLOTLY_DARK_AXIS, list(...))
+}
+
+apply_plotly_dark <- function(p) {
+  plotly::layout(
+    p,
+    paper_bgcolor = "rgba(0,0,0,0)",
+    plot_bgcolor  = "rgba(0,0,0,0)",
+    font          = list(color = "#e6e8ec",
+                         family = "Inter, system-ui, sans-serif",
+                         size = 11),
+    legend        = list(bgcolor = "rgba(0,0,0,0)",
+                         bordercolor = "#252830",
+                         font = list(color = "#e6e8ec", size = 10)),
+    hoverlabel    = list(bgcolor = "#1c1f24",
+                         bordercolor = "#252830",
+                         font = list(color = "#e6e8ec", family = "ui-monospace, JetBrains Mono, Menlo, monospace", size = 11))
+  )
+}
+
 `%||%` <- function(x, y) {
   if (is.null(x) || length(x) == 0) {
     return(y)
@@ -17,18 +59,30 @@ safe_chr <- function(x, default = "") {
   if (is.null(x) || length(x) == 0) {
     return(default)
   }
-
-  out <- as.character(x[[1]])
+  first <- x[[1]]
+  if (is.null(first) || length(first) == 0) {
+    return(default)
+  }
+  out <- suppressWarnings(as.character(first))
+  if (length(out) == 0 || is.na(out)) {
+    return(default)
+  }
   if (!nzchar(trimws(out))) {
     return(default)
   }
-
   out
 }
 
 safe_num <- function(x, default = NA_real_) {
-  out <- suppressWarnings(as.numeric(x[[1]]))
-  if (!is.finite(out)) {
+  if (is.null(x) || length(x) == 0) {
+    return(default)
+  }
+  first <- x[[1]]
+  if (is.null(first) || length(first) == 0) {
+    return(default)
+  }
+  out <- suppressWarnings(as.numeric(first))
+  if (length(out) == 0 || !is.finite(out)) {
     return(default)
   }
   out
@@ -100,16 +154,29 @@ json_pretty <- function(x) {
 }
 
 parse_json_safely <- function(txt) {
+  # Handles NA / NULL / empty / malformed input. Returns NULL on any failure
+  # so downstream fetch_*() callers can treat "no data yet" uniformly with
+  # "data exists but couldn't parse". Critical for async webhook ingestion:
+  # /tv-alert writes the alerts row first and the analyses row later, so
+  # parse_json_safely(NA) is hit on every read in between.
   if (is.null(txt) || length(txt) == 0) {
     return(NULL)
   }
-
-  txt <- safe_chr(txt, default = "")
-  if (!nzchar(txt)) {
+  first <- txt[[1]]
+  if (is.null(first) || length(first) == 0) {
     return(NULL)
   }
-
-  jsonlite::fromJSON(txt, simplifyVector = FALSE)
+  if (is.na(first)) {
+    return(NULL)
+  }
+  txt <- suppressWarnings(as.character(first))
+  if (length(txt) == 0 || is.na(txt) || !nzchar(trimws(txt))) {
+    return(NULL)
+  }
+  tryCatch(
+    jsonlite::fromJSON(txt, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
 }
 
 risk_level_from_score <- function(score) {

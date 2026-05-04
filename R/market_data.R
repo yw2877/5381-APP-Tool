@@ -1,5 +1,7 @@
 # ---------- Real market data via quantmod / Yahoo Finance ----------
-# No simulated fallback — if Yahoo Finance fails, an error is raised.
+# Reliability: 5-min cache; on Yahoo failure, return last cached entry
+# (with attr("stale") = TRUE) instead of erroring out. Only error when
+# nothing is cached.
 
 .price_cache <- new.env(parent = emptyenv())
 
@@ -18,26 +20,72 @@ get_price_history <- function(symbol, lookback = DEFAULT_LOOKBACK) {
     }
   }
 
-  # Fetch from Yahoo Finance — errors propagate to caller
-  start_date  <- Sys.Date() - lookback - 10L
-  raw         <- quantmod::getSymbols(
-    yahoo_sym,
-    src         = "yahoo",
-    from        = start_date,
-    to          = Sys.Date(),
-    auto.assign = FALSE
+  # Fetch from Yahoo Finance with reliability fallback to stale cache
+  fetch_result <- tryCatch({
+    start_date  <- Sys.Date() - lookback - 10L
+    raw         <- quantmod::getSymbols(
+      yahoo_sym,
+      src         = "yahoo",
+      from        = start_date,
+      to          = Sys.Date(),
+      auto.assign = FALSE
+    )
+
+    close_col    <- grep("Close", colnames(raw), value = TRUE)[[1]]
+    close_prices <- as.numeric(raw[, close_col])
+    dates        <- as.Date(zoo::index(raw))
+
+    df      <- tibble::tibble(date = dates, close = close_prices)
+    df      <- utils::tail(df, lookback)
+    df$ret  <- c(NA_real_, diff(log(df$close)))
+    list(ok = TRUE, df = df)
+  }, error = function(e) {
+    list(ok = FALSE, error = conditionMessage(e))
+  })
+
+  if (isTRUE(fetch_result$ok)) {
+    assign(cache_key,
+           list(data = fetch_result$df, fetched_at = Sys.time()),
+           envir = .price_cache)
+    return(fetch_result$df)
+  }
+
+  # Fetch failed → fall back to ANY cache entry (even stale)
+  if (exists(cache_key, envir = .price_cache)) {
+    cached <- get(cache_key, envir = .price_cache)
+    df <- cached$data
+    attr(df, "stale") <- TRUE
+    attr(df, "stale_age_min") <- as.numeric(
+      difftime(Sys.time(), cached$fetched_at, units = "mins"))
+    attr(df, "fetch_error") <- fetch_result$error
+    warning(sprintf(
+      "Yahoo Finance fetch failed for %s; using stale cache (%.1f min old): %s",
+      yahoo_sym,
+      attr(df, "stale_age_min"),
+      fetch_result$error))
+    return(df)
+  }
+
+  # Nothing cached → propagate error
+  stop("Yahoo Finance fetch failed and no cache available: ",
+       fetch_result$error)
+}
+
+# Health probe: returns list(ok, last_fetch_age_min, n_cached)
+yahoo_health <- function() {
+  keys <- ls(envir = .price_cache)
+  if (!length(keys)) {
+    return(list(ok = FALSE, last_fetch_age_min = NA_real_, n_cached = 0L))
+  }
+  ages <- vapply(keys, function(k) {
+    e <- get(k, envir = .price_cache)
+    as.numeric(difftime(Sys.time(), e$fetched_at, units = "mins"))
+  }, numeric(1))
+  list(
+    ok = min(ages) < 30,  # at least one fetch in the last 30 min
+    last_fetch_age_min = min(ages),
+    n_cached = length(keys)
   )
-
-  close_col    <- grep("Close", colnames(raw), value = TRUE)[[1]]
-  close_prices <- as.numeric(raw[, close_col])
-  dates        <- as.Date(zoo::index(raw))
-
-  df      <- tibble::tibble(date = dates, close = close_prices)
-  df      <- utils::tail(df, lookback)
-  df$ret  <- c(NA_real_, diff(log(df$close)))
-
-  assign(cache_key, list(data = df, fetched_at = Sys.time()), envir = .price_cache)
-  df
 }
 
 # Kept for reference but not called by the live pipeline.

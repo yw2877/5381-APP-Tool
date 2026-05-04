@@ -6,3 +6,17 @@
 .DS_Store
 Thumbs.db
 .env
+
+# V3 — eval CSVs are generated locally (require OpenAI key)
+data/eval/*.csv
+!data/eval/README.md
+
+# V3 — runtime data
+data/alerts.sqlite*
+data/failed_writes/
+
+# Legacy
+appv2/
+
+# Plan files (Claude Code local)
+.claude/

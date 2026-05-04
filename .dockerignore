@@ -3,11 +3,6 @@
 .claude
 .env
 .env.*
-*.md
-docs
-plumber
-run_plumber.R
-APPV2_PROJECT_PLAN.md
 .DS_Store
 .Rhistory
 .RData
@@ -16,3 +11,8 @@ APPV2_PROJECT_PLAN.md
 .Rproj.user
 __pycache__
 *.pyc
+APPV2_PROJECT_PLAN.md
+docs/eval
+docs/*.png
+appv2
+README.md

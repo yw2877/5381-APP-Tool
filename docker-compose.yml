@@ -1,9 +1,10 @@
-# 在项目根目录执行：docker compose up --build
-# Compose 会自动读取同目录下的 .env 用于变量替换（不要把 .env 提交到 Git）
+# Run with: docker compose up --build
+# Compose auto-loads .env from this directory (do NOT commit .env).
 
 services:
   shiny:
     build: .
+    container_name: msc-shiny
     ports:
       - "${HOST_PORT:-3838}:3838"
     environment:
@@ -11,5 +12,47 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       TV_WEBHOOK_SECRET: ${TV_WEBHOOK_SECRET:-}
-      APPV2_DB_PATH: ${APPV2_DB_PATH:-}
-      APPV2_WEBHOOK_PORT: ${APPV2_WEBHOOK_PORT:-8000}
+      APPV2_DB_PATH: /app/data/alerts.sqlite
+      QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-0.75}
+      MAX_LOOP_ITERATIONS: ${MAX_LOOP_ITERATIONS:-2}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-3}
+      LLM_CACHE_TTL_MIN: ${LLM_CACHE_TTL_MIN:-30}
+    volumes:
+      - sqlite-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3838/ > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  webhook:
+    build: .
+    container_name: msc-webhook
+    command: ["Rscript", "/app/run_plumber.R"]
+    ports:
+      - "${WEBHOOK_PORT:-8000}:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      TV_WEBHOOK_SECRET: ${TV_WEBHOOK_SECRET:-}
+      APPV2_DB_PATH: /app/data/alerts.sqlite
+      APPV2_WEBHOOK_PORT: "8000"
+      QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-0.75}
+      MAX_LOOP_ITERATIONS: ${MAX_LOOP_ITERATIONS:-2}
+    volumes:
+      - sqlite-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      shiny:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  sqlite-data:

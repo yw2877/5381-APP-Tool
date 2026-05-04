@@ -46,6 +46,18 @@ openai_key <- function() {
 
 OPENAI_MODEL <- Sys.getenv("OPENAI_MODEL", unset = "gpt-4o-mini")
 
+# ---------- V3: agentic loop + quality control ----------
+# Critic agent decides whether the memo passes; if not, the loop regenerates
+# the memo with critique feedback. These constants cap iterations and tune
+# the gate.
+QUALITY_THRESHOLD    <- as.numeric(Sys.getenv("QUALITY_THRESHOLD",    unset = "0.75"))
+MAX_LOOP_ITERATIONS  <- as.integer(Sys.getenv("MAX_LOOP_ITERATIONS",  unset = "2"))
+
+# LLM gateway settings (R/llm.R)
+LLM_MAX_RETRIES      <- as.integer(Sys.getenv("LLM_MAX_RETRIES",      unset = "3"))
+LLM_CACHE_TTL_MIN    <- as.integer(Sys.getenv("LLM_CACHE_TTL_MIN",    unset = "30"))
+LLM_TIMEOUT_SECONDS  <- as.integer(Sys.getenv("LLM_TIMEOUT_SECONDS",  unset = "30"))
+
 APP_ASSETS <- tibble::tribble(
   ~label,    ~symbol,   ~tv_symbol,        ~asset_class, ~base_price, ~vol_scale,
   "BTCUSDT", "BTC-USD", "BINANCE:BTCUSDT", "Crypto",     68000,       0.032,

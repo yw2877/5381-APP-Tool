@@ -1,36 +1,138 @@
-run_agent_pipeline <- function(alert, lookback = DEFAULT_LOOKBACK) {
-  triage <- signal_triage_agent(alert)
-  risk <- risk_engine_agent(alert, lookback = lookback)
+# ============================================================================
+# R/pipeline.R — V3 agentic loop
+#
+# Orchestrates: Triage → Risk Engine → Memo → Critic → (optional re-Memo)
+# The Critic decides whether the memo passes; if not, the loop regenerates
+# the memo with critique feedback. Capped by MAX_LOOP_ITERATIONS.
+# ============================================================================
+
+run_agent_pipeline <- function(alert, lookback = DEFAULT_LOOKBACK,
+                               alert_id       = NULL,
+                               max_iterations = MAX_LOOP_ITERATIONS,
+                               quality_threshold = QUALITY_THRESHOLD) {
+
+  # 1. Triage
+  triage <- signal_triage_agent(alert, alert_id = alert_id)
+
+  # 2. Risk Engine (deterministic)
+  risk <- risk_engine_agent(alert, lookback = lookback, alert_id = alert_id)
+
+  # 3. Knowledge retrieval (RAG)
   knowledge <- retrieve_knowledge(
     signal_type = triage$signal_type,
-    symbol = alert$symbol,
-    risk_level = risk$risk_level
-  )
-  memo <- risk_memo_agent(
-    alert = alert,
-    triage = triage,
-    risk = risk,
-    knowledge = knowledge
+    symbol      = alert$symbol,
+    risk_level  = risk$risk_level
   )
 
+  # 4. First memo
+  iterations <- list()
+  memo <- risk_memo_agent(
+    alert = alert, triage = triage, risk = risk, knowledge = knowledge,
+    iteration = 1L, alert_id = alert_id
+  )
+
+  # 5. First critique
+  critique <- critic_agent(
+    alert = alert, triage = triage, risk = risk, memo = memo,
+    iteration = 1L, alert_id = alert_id
+  )
+  iterations[[1L]] <- list(
+    iteration = 1L,
+    memo      = memo,
+    critique  = critique,
+    t         = format_ts(Sys.time())
+  )
+
+  # 6. Loop while not passing
+  iter <- 1L
+  while (!isTRUE(critique$passes) && iter < max_iterations) {
+    iter <- iter + 1L
+
+    # Memo with directives
+    memo <- risk_memo_agent(
+      alert = alert, triage = triage, risk = risk, knowledge = knowledge,
+      improvement_directives = critique$improvement_directives,
+      previous_memo = memo,
+      iteration = iter, alert_id = alert_id
+    )
+
+    # New critique
+    critique <- critic_agent(
+      alert = alert, triage = triage, risk = risk, memo = memo,
+      iteration = iter, alert_id = alert_id
+    )
+
+    iterations[[iter]] <- list(
+      iteration = iter,
+      memo      = memo,
+      critique  = critique,
+      t         = format_ts(Sys.time())
+    )
+  }
+
   list(
-    alert = alert,
-    triage = triage,
-    risk = risk,
+    alert     = alert,
+    triage    = triage,
+    risk      = risk,
     knowledge = knowledge,
-    memo = memo
+    memo      = memo,
+    quality   = list(
+      final_score        = safe_num(critique$quality_score, default = NA_real_),
+      passed             = isTRUE(critique$passes),
+      iterations_used    = iter,
+      dimension_scores   = critique$dimension_scores,
+      issues             = critique$issues,
+      improvement_directives = critique$improvement_directives,
+      iteration_history  = iterations,
+      degraded           = isTRUE(critique$degraded) ||
+                           isTRUE(memo$degraded) ||
+                           isTRUE(triage$degraded)
+    )
   )
 }
 
+# ----------------------------------------------------------------------------
+# process_and_store_alert: end-to-end + persistence
+# Wrapped in tryCatch so a mid-pipeline failure persists what we have.
+# ----------------------------------------------------------------------------
 process_and_store_alert <- function(payload, lookback = DEFAULT_LOOKBACK) {
   alert <- normalize_alert_payload(payload)
   alert_id <- insert_alert_record(alert, raw_payload = payload)
-  analysis <- run_agent_pipeline(alert, lookback = lookback)
-  save_analysis_record(alert_id, analysis)
+
+  analysis <- tryCatch(
+    run_agent_pipeline(alert, lookback = lookback, alert_id = alert_id),
+    error = function(e) {
+      message("run_agent_pipeline failed: ", conditionMessage(e))
+      list(
+        alert     = alert,
+        triage    = NULL,
+        risk      = NULL,
+        knowledge = NULL,
+        memo      = NULL,
+        quality   = NULL,
+        partial_error = conditionMessage(e)
+      )
+    }
+  )
+
+  status <- if (!is.null(analysis$partial_error)) "partial" else "ok"
+
+  # Save analysis (handles partial)
+  tryCatch(
+    save_analysis_record(alert_id, analysis, status = status),
+    error = function(e) {
+      message("save_analysis_record failed: ", conditionMessage(e))
+    }
+  )
+
+  if (!is.null(analysis$quality)) {
+    record_quality_score(alert_id, analysis$quality)
+  }
 
   list(
     alert_id = alert_id,
-    analysis = analysis
+    analysis = analysis,
+    status   = status
   )
 }
 
